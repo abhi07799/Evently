@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres_db_container
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: evently
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - ./docker/postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - db-data:/var/lib/postgresql/data
+      - db-data:/var/log/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer
+    container_name: adminer_container
+    restart: unless-stopped
+    ports:
+      - 7070:8080
+    depends_on:
+      - postgres
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.1
+    container_name: keycloak_container
+    restart: unless-stopped
+    ports:
+      - "9090:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HEALTH_ENABLED: true
+
+    command:
+      - start-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+volumes:
+  db-data:
+    driver: local
