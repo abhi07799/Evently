@@ -16,6 +16,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -53,12 +57,17 @@ public class EventController
                     content = @Content(mediaType = "application/json")
             )
     })
-    @PostMapping("/createEvent")
-    public ResponseEntity<EventResponseDTO> createEvent(
-            @Valid @RequestBody EventRequestDTO eventRequestDTO) {
+    @GetMapping("/organizer/{organizerUserId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ORGANIZER')")
+    public ResponseEntity<Page<EventResponseDTO>> getEventByOrganizerUserId(
+            @PathVariable Long organizerUserId,
+            @PageableDefault(size = 10, sort = "id") Pageable pageable,
+            @AuthenticationPrincipal Jwt jwt,
+            Authentication authentication) {
 
-        EventResponseDTO response = eventService.createEvent(eventRequestDTO);
-        return new ResponseEntity<>(response, HttpStatus.CREATED);
+        return ResponseEntity.ok(
+                eventService.getEventByOrganizerUserId(
+                        organizerUserId, pageable, jwt, authentication));
     }
 
     @Operation(
@@ -190,12 +199,15 @@ public class EventController
     public ResponseEntity<EventResponseDTO> updateEvent(
             @PathVariable Long eventId,
             @PathVariable Long organizerUserId,
-            @RequestBody EventRequestDTO eventRequestDTO) {
+            @RequestBody EventRequestDTO eventRequestDTO,
+            @AuthenticationPrincipal Jwt jwt,
+            Authentication authentication) {
 
         EventResponseDTO response = eventService.updateEvent(
                 eventId,
-                organizerUserId,
-                eventRequestDTO
+                eventRequestDTO,
+                jwt,
+                authentication
         );
 
         return new ResponseEntity<>(response, HttpStatus.OK);

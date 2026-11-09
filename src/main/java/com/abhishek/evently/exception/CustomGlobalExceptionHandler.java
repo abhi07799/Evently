@@ -64,12 +64,24 @@ public class CustomGlobalExceptionHandler
         return new ResponseEntity<>(ErrorResponseDTO, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
+    // Handles failures while communicating with the Keycloak identity provider.
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    @ExceptionHandler(KeycloakIntegrationException.class)
+    @ResponseBody
+    public ResponseEntity<ErrorResponseDTO> handleKeycloakIntegrationException(
+            KeycloakIntegrationException ex, WebRequest request) {
+
+        ErrorResponseDTO errorResponse = ErrorResponseDTO.builder().status(HttpStatus.BAD_GATEWAY).timestamp(LocalDateTime.now()).message("Identity provider is temporarily unavailable. Please try again later.").build();
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_GATEWAY);
+    }
+
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     @ExceptionHandler(Exception.class)
     @ResponseBody
     public ResponseEntity<ErrorResponseDTO> handleAnyException(Exception ex, WebRequest request)
     {
-        ErrorResponseDTO ErrorResponseDTO = com.abhishek.evently.dto.response.ErrorResponseDTO.builder().status(HttpStatus.INTERNAL_SERVER_ERROR).timestamp(LocalDateTime.now()).message("Something went wrong! Please try again later!").debugMessage(ex.getMessage()).build();
+        ErrorResponseDTO ErrorResponseDTO = com.abhishek.evently.dto.response.ErrorResponseDTO.builder().status(HttpStatus.INTERNAL_SERVER_ERROR).timestamp(LocalDateTime.now()).message("Something went wrong! Please try again later!").build();
         return new ResponseEntity<>(ErrorResponseDTO, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

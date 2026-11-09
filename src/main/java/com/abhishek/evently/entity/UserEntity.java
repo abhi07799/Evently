@@ -27,6 +27,8 @@ public class UserEntity
 
     private String email;
 
+    private String keycloakId;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 
