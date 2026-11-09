@@ -19,6 +19,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.abhishek.evently.entity.UserEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.jwt.Jwt;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -33,6 +38,7 @@ public class TicketService
     private final UserRepository userRepository;
     private final ModelMapper modelMapper;
     private final QRCodeService qrCodeService;
+    private final CurrentUserService currentUserService;
 
     public Page<TicketResponseDTO> getAllTickets(Pageable pageable)
     {
@@ -41,13 +47,29 @@ public class TicketService
         return ticketEntities.map(ticketEntity -> modelMapper.map(ticketEntity, TicketResponseDTO.class));
     }
 
-    public TicketResponseDTO getTicketById(Long ticketId)
-    {
-        return modelMapper.map(
-                ticketRepository.findById(ticketId)
-                        .orElseThrow(() -> new ResourceNotFoundException(
-                                "No Ticket found with id: " + ticketId)),
-                TicketResponseDTO.class);
+    public TicketResponseDTO getTicketById(
+            Long ticketId,
+            Jwt jwt,
+            Authentication authentication) {
+
+        // Resolve the authenticated Evently user.
+        UserEntity currentUser = currentUserService.getCurrentUser(jwt);
+
+        TicketEntity ticketEntity = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No Ticket found with id: " + ticketId));
+
+        // ADMIN can access any ticket.
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(authority ->
+                        authority.getAuthority().equals("ROLE_ADMIN"));
+
+        // Other users can access only their own ticket.
+        if (!isAdmin && !currentUser.getId().equals(ticketEntity.getPurchaserUserId())) {
+            throw new AccessDeniedException("You are not allowed to view this ticket");
+        }
+
+        return modelMapper.map(ticketEntity, TicketResponseDTO.class);
     }
 
     public Page<TicketResponseDTO> getTicketsByTicketStockId(Long ticketStockId, Pageable pageable)
@@ -61,15 +83,40 @@ public class TicketService
         return ticketEntities.map(ticketEntity -> modelMapper.map(ticketEntity, TicketResponseDTO.class));
     }
 
-    public Page<TicketResponseDTO> getTicketsByPurchaserUserId(Long purchaserUserId, Pageable pageable)
-    {
+    /**
+     * Allows attendees to view only their own tickets.
+     * ADMIN users can view tickets belonging to any user.
+     */
+    public Page<TicketResponseDTO> getTicketsByPurchaserUserId(
+            Long purchaserUserId,
+            Pageable pageable,
+            Jwt jwt,
+            Authentication authentication) {
+
+        UserEntity currentUser = currentUserService.getCurrentUser(jwt);
+
+        // Check whether the authenticated user has the ADMIN role.
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"));
+
+        // Attendees cannot access another user's ticket history.
+        if (!isAdmin && !currentUser.getId().equals(purchaserUserId)) {
+            throw new AccessDeniedException(
+                    "You are not allowed to view another user's tickets"
+            );
+        }
+
+        // Verify the requested user exists (especially relevant for ADMIN).
         userRepository.findById(purchaserUserId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No User found with id: " + purchaserUserId));
 
-        Page<TicketEntity> ticketEntities = ticketRepository.findByPurchaserUserId(purchaserUserId, pageable);
+        Page<TicketEntity> ticketEntities =
+                ticketRepository.findByPurchaserUserId(purchaserUserId, pageable);
 
-        return ticketEntities.map(ticketEntity -> modelMapper.map(ticketEntity, TicketResponseDTO.class));
+        return ticketEntities.map(
+                ticketEntity -> modelMapper.map(ticketEntity, TicketResponseDTO.class)
+        );
     }
 
     public TicketResponseDTO updateTicket(Long ticketId, TicketRequestDTO ticketRequestDTO)
@@ -102,17 +149,20 @@ public class TicketService
     }
 
 
+    /**
+     * Purchases a ticket for the currently authenticated user.
+     * The purchaser ID from the request body is never trusted.
+     */
     @Transactional
-    public TicketResponseDTO purchaseTicket(TicketRequestDTO ticketRequestDTO)
+    public TicketResponseDTO purchaseTicket(TicketRequestDTO ticketRequestDTO, Jwt jwt)
     {
+        // Resolve the purchaser using the authenticated Keycloak identity.
+        UserEntity currentUser = currentUserService.getCurrentUser(jwt);
+
         TicketStockEntity ticketStockEntity = ticketStockRepository.findByIdWithLock(
                         ticketRequestDTO.getTicketStockId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No Ticket Stock found with id: " + ticketRequestDTO.getTicketStockId()));
-
-        userRepository.findById(ticketRequestDTO.getPurchaserUserId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "No User found with id: " + ticketRequestDTO.getPurchaserUserId()));
 
         long soldTickets = ticketRepository.countByTicketStockIdAndTicketStatus(
                 ticketStockEntity.getId(), TicketStatusEnum.PURCHASED);
@@ -125,7 +175,10 @@ public class TicketService
         TicketEntity ticketEntity = new TicketEntity();
 
         ticketEntity.setTicketStockId(ticketStockEntity.getId());
-        ticketEntity.setPurchaserUserId(ticketRequestDTO.getPurchaserUserId());
+
+        // Always assign the authenticated user's Evently ID.
+        ticketEntity.setPurchaserUserId(currentUser.getId());
+
         ticketEntity.setTicketStatus(TicketStatusEnum.PURCHASED);
 
         TicketEntity savedTicketEntity = ticketRepository.save(ticketEntity);
@@ -138,13 +191,31 @@ public class TicketService
                 TicketResponseDTO.class);
     }
 
-
+    /**
+     * Allows attendees to cancel only their own tickets.
+     * ADMIN users can cancel any ticket.
+     */
     @Transactional
-    public TicketResponseDTO cancelTicket(Long ticketId)
+    public TicketResponseDTO cancelTicket(
+            Long ticketId,
+            Jwt jwt,
+            Authentication authentication)
     {
+        UserEntity currentUser = currentUserService.getCurrentUser(jwt);
+
         TicketEntity ticketEntity = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No Ticket found with id: " + ticketId));
+
+        // Check whether the authenticated user has the ADMIN role.
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"));
+
+        // Prevent attendees from cancelling tickets owned by other users.
+        if (!isAdmin && !currentUser.getId().equals(ticketEntity.getPurchaserUserId()))
+        {
+            throw new AccessDeniedException("You are not allowed to cancel this ticket");
+        }
 
         if (ticketEntity.getTicketStatus() != TicketStatusEnum.PURCHASED)
         {

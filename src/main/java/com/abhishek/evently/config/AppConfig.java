@@ -8,6 +8,8 @@ import io.swagger.v3.oas.models.servers.Server;
 import org.modelmapper.ModelMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 
@@ -27,24 +29,5 @@ public class AppConfig
         return new QRCodeWriter();
     }
 
-    @Bean
-    public OpenAPI swaggerConfiguration()
-    {
-        Server devServer = new Server();
-        devServer.setUrl("http://localhost:8080/api/v1");
-        devServer.setDescription("Server URL for Development environment");
 
-        Contact contact = new Contact();
-        contact.setEmail("test@gmail.com");
-        contact.setName("Ram");
-
-        Info info = new Info()
-                .title("Evently - An Event & Ticket Managing Platform")
-                .version("1.0")
-                .contact(contact)
-                .description("API Documentation")
-                .termsOfService("None as of now");
-
-        return new OpenAPI().info(info).servers(List.of(devServer));
-    }
 }

@@ -11,6 +11,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -48,6 +52,7 @@ public class TicketController {
                     content = @Content(mediaType = "application/json")
             )
     })
+    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/allTickets")
     public ResponseEntity<Page<TicketResponseDTO>> getAllTickets(
             @PageableDefault(size = 10, sort = "id") Pageable pageable) {
@@ -82,9 +87,12 @@ public class TicketController {
     })
     @GetMapping("/{ticketId}")
     public ResponseEntity<TicketResponseDTO> getTicketById(
-            @PathVariable Long ticketId) {
+            @PathVariable Long ticketId,
+            @AuthenticationPrincipal Jwt jwt,
+            Authentication authentication) {
 
-        return new ResponseEntity<>(ticketService.getTicketById(ticketId), HttpStatus.OK);
+        return ResponseEntity.ok(
+                ticketService.getTicketById(ticketId, jwt, authentication));
     }
 
 
@@ -112,6 +120,7 @@ public class TicketController {
                     content = @Content(mediaType = "application/json")
             )
     })
+    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/stock/{ticketStockId}")
     public ResponseEntity<Page<TicketResponseDTO>> getTicketsByTicketStockId(
             @PathVariable Long ticketStockId, @PageableDefault(size = 10, sort = "id") Pageable pageable) {
@@ -144,12 +153,21 @@ public class TicketController {
                     content = @Content(mediaType = "application/json")
             )
     })
+    // Only attendees and admins can access purchaser ticket history.
+    @PreAuthorize("hasAnyRole('ATTENDEE', 'ADMIN')")
     @GetMapping("/purchaser/{purchaserUserId}")
     public ResponseEntity<Page<TicketResponseDTO>> getTicketsByPurchaserUserId(
-            @PathVariable Long purchaserUserId, @PageableDefault(size = 10, sort = "id") Pageable pageable) {
+            @PathVariable Long purchaserUserId,
+            @PageableDefault(size = 10, sort = "id") Pageable pageable,
+            @AuthenticationPrincipal Jwt jwt,
+            Authentication authentication) {
 
         return new ResponseEntity<>(
-                ticketService.getTicketsByPurchaserUserId(purchaserUserId, pageable), HttpStatus.OK);
+                ticketService.getTicketsByPurchaserUserId(
+                        purchaserUserId, pageable, jwt, authentication
+                ),
+                HttpStatus.OK
+        );
     }
 
 
@@ -177,6 +195,7 @@ public class TicketController {
                     content = @Content(mediaType = "application/json")
             )
     })
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/{ticketId}")
     public ResponseEntity<TicketResponseDTO> updateTicket(
             @PathVariable Long ticketId,
@@ -213,10 +232,9 @@ public class TicketController {
     })
     @PostMapping("/purchase")
     public ResponseEntity<TicketResponseDTO> purchaseTicket(
-            @Valid @RequestBody TicketRequestDTO ticketRequestDTO) {
+            @Valid @RequestBody TicketRequestDTO ticketRequestDTO, @AuthenticationPrincipal Jwt jwt) {
 
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ticketService.purchaseTicket(ticketRequestDTO));
+        return new ResponseEntity<>(ticketService.purchaseTicket(ticketRequestDTO, jwt), HttpStatus.CREATED);
     }
 
 
@@ -246,8 +264,9 @@ public class TicketController {
     })
     @PatchMapping("/{ticketId}/cancel")
     public ResponseEntity<TicketResponseDTO> cancelTicket(
-            @PathVariable Long ticketId) {
+            @PathVariable Long ticketId, @AuthenticationPrincipal Jwt jwt,
+            Authentication authentication) {
 
-        return new ResponseEntity<>(ticketService.cancelTicket(ticketId), HttpStatus.OK);
+        return new ResponseEntity<>(ticketService.cancelTicket(ticketId, jwt, authentication), HttpStatus.OK);
     }
 }
